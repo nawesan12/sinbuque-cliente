@@ -1,0 +1,19 @@
+name: SinBuque · publicar una versión
+
+# Se dispara a mano desde la pestaña Actions, o solo al empujar una etiqueta de versión.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    uses: ./.github/workflows/flutter-build.yml
+    secrets: inherit
+    permissions:
+      contents: write
+    with:
+      upload-artifact: true
+      upload-tag: ${{ github.ref_name }}
