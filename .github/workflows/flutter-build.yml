@@ -202,6 +202,10 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           prefix-key: ${{ matrix.job.os }}
+          # Guardar también cuando el job falla. Por defecto no lo hace, y eso significa que
+          # un error en un paso del final —empaquetar, firmar— obliga a recompilar todo Rust
+          # desde cero en el intento siguiente. Nos costó veinte minutos una vez.
+          cache-on-failure: true
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
