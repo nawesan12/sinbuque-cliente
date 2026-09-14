@@ -9,6 +9,11 @@ on:
       upload-tag:
         type: string
         default: "nightly"
+      # "ambas", "android" o "windows". Los runners de Windows se facturan al doble que
+      # los de Linux, así que pedir sólo el APK no tiene por qué costar los dos.
+      plataforma:
+        type: string
+        default: "ambas"
 
 # La advertencia de upstream sobre mantener sincronizado 'flutter/build_fdroid.sh' no
 # corre acá: el workflow que lo invocaba ('.github/workflows/fdroid.yml') no está en este
@@ -55,6 +60,7 @@ jobs:
     uses: ./.github/workflows/bridge.yml
 
   build-RustDeskTempTopMostWindow:
+    if: inputs.plataforma != 'android'
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     strategy:
       fail-fast: false
@@ -72,6 +78,7 @@ jobs:
       target_version: Windows10
 
   build-for-windows-flutter:
+    if: inputs.plataforma != 'android'
     name: ${{ matrix.job.target }}
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: ${{ matrix.job.os }}
@@ -364,6 +371,7 @@ jobs:
             ./SignOutput/SinBuque-*.exe
 
   build-for-android:
+    if: inputs.plataforma != 'windows'
     needs: [generate-bridge]
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
