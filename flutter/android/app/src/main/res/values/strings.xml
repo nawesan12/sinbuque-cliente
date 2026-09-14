@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">RustDesk</string>
-    <string name="accessibility_service_description">Allow other devices to control your phone using virtual touch, when RustDesk screen sharing is established</string>
+    <string name="app_name">SinBuque</string>
+    <string name="accessibility_service_description">Permite que desde otro equipo se pueda manejar este dispositivo con toques virtuales, mientras SinBuque está compartiendo la pantalla.</string>
 </resources>
