@@ -29,6 +29,19 @@ excepción es el nombre del servicio de accesibilidad en
 `android_input_permission_tip2`, que tiene que coincidir letra por letra con el
 `android:label` del manifiesto.
 
+## La página de descarga
+
+[`web/descargar.html`](web/descargar.html) es lo que ve alguien a quien le dijeron «entrá acá
+y bajate esto». Se despliega a mano en el VPS, **con otro nombre**:
+
+```bash
+scp web/descargar.html root@179.199.147.216:/opt/puente/server/deploy/descargas/index.html
+```
+
+No tiene JavaScript a propósito: elegir entre Windows y Android es un `radio` y un `:checked`.
+La puede estar abriendo un navegador viejo en una máquina que anda mal, que es exactamente el
+motivo por el que la persona llegó hasta ahí.
+
 ## Cómo se compila
 
 Las dos plataformas salen de GitHub Actions, del mismo workflow: pestaña **Actions** →

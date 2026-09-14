@@ -1,0 +1,571 @@
+<!doctype html>
+<!--
+  La página de descarga de SinBuque.
+
+  Se despliega en el VPS como  /opt/puente/server/deploy/descargas/index.html  — ojo con el
+  nombre: acá es descargar.html y allá es index.html. Las reglas que deciden cómo se baja
+  cada archivo no están en ese servidor de archivos sino en el Caddyfile del repositorio
+  `puente`: Caddy sirve esa carpeta él mismo, sin pasar por el nginx que hay al lado.
+
+      scp web/descargar.html root@179.199.147.216:/opt/puente/server/deploy/descargas/index.html
+-->
+<html lang="es-AR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SinBuque — descargar</title>
+    <meta
+      name="description"
+      content="Bajá SinBuque para que podamos entrar a tu equipo y arreglarlo sin movernos de acá."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='4' width='16' height='13' rx='2.5' fill='none' stroke='%232c5ce6' stroke-width='2.6'/%3E%3Crect x='12' y='13' width='17' height='14' rx='2.5' fill='%232c5ce6'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Public+Sans:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ──────────────────────────────────────────────────────────────────────────────
+         SinBuque — página de descarga.
+
+         Quien entra acá casi siempre tiene algo roto y a alguien al teléfono diciéndole
+         qué hacer. La página tiene un solo trabajo, en dos mitades: que baje el archivo
+         **de su equipo**, y que después **nos pase dos datos**. La segunda mitad es la
+         que la gente saltea, y por eso acá no se explica con palabras: se dibuja la
+         pantalla donde están.
+
+         No hay una línea de JavaScript, a propósito. Elegir entre Windows y Android es
+         un `radio` y un `:checked`. Esto lo puede estar abriendo un navegador viejo en
+         una máquina que anda mal — que es, literalmente, el motivo por el que la persona
+         llegó hasta acá.
+         ────────────────────────────────────────────────────────────────────────────── */
+
+      :root {
+        --tinta: #0b1220;
+        --tinta-media: #3c4a63;
+        --tinta-suave: #64728c;
+        --papel: #ffffff;
+        --papel-hueso: #f2f5fb;
+        --linea: #dfe5f0;
+        --marca: #2c5ce6;
+        --marca-honda: #1b3ea8;
+        /* El azul que lleva texto blanco encima. No cambia con el tema: --marca sí se
+           aclara en oscuro, para leerse *sobre* el fondo, y ese mismo azul claro debajo
+           de texto blanco daría 2.4:1. */
+        --marca-solida: #2c5ce6;
+        --marca-solida-honda: #1b3ea8;
+        --marca-tenue: #e7edfd;
+        /* El ámbar marca el único paso que la gente saltea. Si lo usara en otro lado,
+           dejaría de marcarlo. */
+        --senal: #a4530a;
+        --senal-tenue: #fdf2e2;
+        --hero: #0b1220;
+        --hero-texto: #ffffff;
+        --hero-suave: #94a6c9;
+
+        --display: "Bricolage Grotesque", "Archivo", "Segoe UI", system-ui, sans-serif;
+        --texto: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+
+        --radio: 16px;
+        --sombra: 0 1px 2px rgba(11, 18, 32, 0.06), 0 8px 24px rgba(11, 18, 32, 0.07);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --tinta: #eaf0fa;
+          --tinta-media: #aab8d2;
+          --tinta-suave: #8595b3;
+          --papel: #0d131d;
+          --papel-hueso: #151d2a;
+          --linea: #24303f;
+          --marca: #7b9dff;
+          --marca-honda: #a8bfff;
+          --marca-solida: #2f5fe0;
+          --marca-solida-honda: #4776f0;
+          --marca-tenue: #182540;
+          --senal: #e3a35c;
+          --senal-tenue: #241c10;
+          --hero: #060a12;
+          --sombra: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
+        }
+      }
+
+      *, *::before, *::after { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--papel);
+        color: var(--tinta);
+        font-family: var(--texto);
+        font-size: 18px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--marca);
+        outline-offset: 3px;
+        border-radius: 6px;
+      }
+
+      /* ── El encabezado ────────────────────────────────────────────────────────────
+         La marca es dos pantallas: una atrás en contorno y otra adelante llena. Acá esa
+         misma figura, en grande y apenas visible, es el fondo — el producto dibujándose
+         a sí mismo en vez de una textura cualquiera. */
+      .tapa {
+        background: var(--hero);
+        color: var(--hero-texto);
+        padding: 3.2rem 1.5rem 3rem;
+        position: relative;
+        overflow: hidden;
+      }
+      /* La de atrás, en contorno. */
+      .tapa::before {
+        content: "";
+        position: absolute;
+        right: 7.5rem;
+        bottom: 3rem;
+        width: 10.5rem;
+        height: 7rem;
+        border: 9px solid rgba(124, 157, 255, 0.16);
+        border-radius: 20px;
+        pointer-events: none;
+      }
+      /* La de adelante, llena. El borde del color del fondo abre el hueco entre las dos,
+         que es lo que hace reconocible la marca; por eso la transparencia va en el color
+         y no en el elemento, que se llevaría el borde puesto. */
+      .tapa::after {
+        content: "";
+        position: absolute;
+        right: -2.5rem;
+        bottom: -2.5rem;
+        width: 11.5rem;
+        height: 8rem;
+        background: rgba(124, 157, 255, 0.16);
+        border: 9px solid var(--hero);
+        border-radius: 24px;
+        pointer-events: none;
+      }
+      .tapa > * { position: relative; }
+
+      .marca {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        margin-bottom: 1.6rem;
+      }
+      .marca svg { width: 34px; height: 34px; flex: none; }
+      .marca span {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 1.35rem;
+        letter-spacing: -0.02em;
+      }
+
+      .titular {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: clamp(2.3rem, 8vw, 3.6rem);
+        line-height: 1.03;
+        letter-spacing: -0.035em;
+        margin: 0;
+        max-width: 15ch;
+      }
+      .titular em {
+        font-style: normal;
+        /* Fijo, y no var(--marca): la tapa es oscura en los dos temas, así que el acento
+           tiene que estar calculado contra ese fondo y no contra el del resto. */
+        color: #7ea2ff;
+      }
+      .bajada {
+        color: var(--hero-suave);
+        margin: 1rem 0 0;
+        max-width: 34ch;
+        font-size: 1.05rem;
+      }
+
+      .hoja { max-width: 40rem; margin: 0 auto; padding: 0 1.5rem 5rem; }
+      .tapa .hoja { padding: 0; max-width: 40rem; }
+
+      /* ── La pregunta ─────────────────────────────────────────────────────────────── */
+      .pregunta {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 1.5rem;
+        letter-spacing: -0.02em;
+        margin: 2.8rem 0 1rem;
+      }
+
+      /* Los radios quedan en el flujo pero invisibles: `display:none` les sacaría el
+         foco del teclado, y esta página tiene que poder usarse sin mouse. */
+      .elector {
+        position: absolute;
+        width: 1px; height: 1px;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .equipos {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.8rem;
+      }
+      .equipo {
+        display: block;
+        cursor: pointer;
+        background: var(--papel);
+        border: 2px solid var(--linea);
+        border-radius: var(--radio);
+        padding: 1.1rem 1rem;
+        transition: border-color 0.15s, background 0.15s, transform 0.15s;
+      }
+      .equipo:hover { border-color: var(--tinta-suave); }
+      .equipo svg { width: 28px; height: 28px; display: block; margin-bottom: 0.6rem; color: var(--tinta-media); }
+      .equipo b {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 1.05rem;
+        letter-spacing: -0.01em;
+        display: block;
+      }
+      .equipo small { color: var(--tinta-suave); font-size: 0.86rem; }
+
+      #es-windows:checked ~ .equipos [for="es-windows"],
+      #es-android:checked ~ .equipos [for="es-android"] {
+        border-color: var(--marca);
+        background: var(--marca-tenue);
+      }
+      #es-windows:checked ~ .equipos [for="es-windows"] svg,
+      #es-android:checked ~ .equipos [for="es-android"] svg { color: var(--marca); }
+      .elector:focus-visible ~ .equipos .equipo { }
+      #es-windows:focus-visible ~ .equipos [for="es-windows"],
+      #es-android:focus-visible ~ .equipos [for="es-android"] {
+        outline: 3px solid var(--marca);
+        outline-offset: 3px;
+      }
+
+      /* ── Los dos caminos ─────────────────────────────────────────────────────────── */
+      .camino { display: none; }
+      #es-windows:checked ~ .camino.windows,
+      #es-android:checked ~ .camino.android { display: block; animation: entrar 0.28s ease both; }
+
+      @keyframes entrar {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      .bajar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: 1.6rem;
+        background: var(--marca-solida);
+        color: #fff;
+        text-decoration: none;
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 1.2rem;
+        letter-spacing: -0.01em;
+        padding: 1.15rem 1.3rem;
+        border-radius: var(--radio);
+        box-shadow: 0 10px 26px rgba(44, 92, 230, 0.3);
+        transition: background 0.15s, transform 0.15s;
+      }
+      .bajar:hover { background: var(--marca-solida-honda); }
+      .bajar:active { transform: translateY(1px); }
+      .bajar small {
+        display: block;
+        font-family: var(--texto);
+        font-weight: 400;
+        font-size: 0.87rem;
+        opacity: 0.9;
+        letter-spacing: 0;
+      }
+      .bajar svg { width: 26px; height: 26px; flex: none; }
+
+      /* ── Los pasos ───────────────────────────────────────────────────────────────
+         Van numerados porque son una secuencia real: cada uno no se puede hacer antes
+         del anterior. */
+      .pasos { list-style: none; counter-reset: paso; padding: 0; margin: 2.2rem 0 0; }
+      .pasos li {
+        counter-increment: paso;
+        display: grid;
+        grid-template-columns: 2rem 1fr;
+        gap: 0.95rem;
+        padding: 0.85rem 0;
+        border-top: 1px solid var(--linea);
+      }
+      .pasos li::before {
+        content: counter(paso);
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: var(--marca);
+        background: var(--marca-tenue);
+        width: 2rem; height: 2rem;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        margin-top: 0.15rem;
+      }
+
+      .ojo {
+        display: grid;
+        grid-template-columns: 1.6rem 1fr;
+        gap: 0.8rem;
+        background: var(--senal-tenue);
+        border-left: 4px solid var(--senal);
+        border-radius: 0 12px 12px 0;
+        padding: 1rem 1.2rem;
+        margin-top: 1.4rem;
+        font-size: 0.97rem;
+      }
+      .ojo svg { width: 1.6rem; height: 1.6rem; color: var(--senal); margin-top: 0.1rem; }
+      .ojo b { color: var(--senal); }
+
+      /* ── La pantalla de la app ────────────────────────────────────────────────────
+         El final de la página no es un párrafo pidiendo dos datos: es la pantalla donde
+         están, dibujada. Quien llega hasta acá ya instaló y tiene la app abierta al
+         lado; lo único que necesita es reconocer qué mirar. */
+      .cierre { margin-top: 3.4rem; }
+      .ventana {
+        background: var(--papel-hueso);
+        border: 1px solid var(--linea);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: var(--sombra);
+      }
+      .barra {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.7rem 0.9rem;
+        border-bottom: 1px solid var(--linea);
+        background: var(--papel);
+      }
+      .barra i {
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        background: var(--linea);
+        display: block;
+      }
+      .barra span {
+        font-family: var(--display);
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: var(--tinta-suave);
+        margin-left: 0.4rem;
+      }
+      .dato {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        padding: 1.1rem 1.3rem;
+      }
+      .dato + .dato { border-top: 1px dashed var(--linea); }
+      .dato dt {
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: var(--tinta-suave);
+        font-weight: 700;
+      }
+      .dato dd {
+        margin: 0;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: clamp(1.3rem, 5.5vw, 1.75rem);
+        letter-spacing: 0.02em;
+        color: var(--marca);
+      }
+      .ventana dl { margin: 0; }
+      .pie-dato {
+        font-size: 0.88rem;
+        color: var(--tinta-suave);
+        padding: 0 1.3rem 1.1rem;
+        margin: -0.4rem 0 0;
+      }
+      .remate {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 1.35rem;
+        letter-spacing: -0.02em;
+        margin: 1.3rem 0 0.4rem;
+      }
+      .remate + p { margin-top: 0; color: var(--tinta-media); }
+
+      .nota-final {
+        margin-top: 3rem;
+        padding-top: 1.4rem;
+        border-top: 1px solid var(--linea);
+        font-size: 0.92rem;
+        color: var(--tinta-suave);
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        background: var(--papel-hueso);
+        padding: 0.12em 0.4em;
+        border-radius: 5px;
+      }
+
+      @media (max-width: 26rem) {
+        .equipos { grid-template-columns: 1fr; }
+      }
+
+      /* La marca de fondo vive en el aire que sobra a la derecha de la bajada. Cuando no
+         sobra aire, no hay marca de fondo: antes que decorar está poder leer. */
+      @media (max-width: 44rem) {
+        .tapa::before, .tapa::after { display: none; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="tapa">
+      <div class="hoja">
+        <div class="marca">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="3" y="4" width="16" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.6" />
+            <rect x="12" y="13" width="17" height="14" rx="2.5" fill="currentColor" />
+          </svg>
+          <span>SinBuque</span>
+        </div>
+        <h1 class="titular">Entramos a tu equipo y lo <em>arreglamos</em> desde acá.</h1>
+        <p class="bajada">Bajate el programa, instalalo y pasanos dos datos. Son cinco minutos.</p>
+      </div>
+    </header>
+
+    <main class="hoja">
+      <!-- Los radios van antes que todo lo que depende de ellos: el selector `~` sólo
+           mira hacia adelante. -->
+      <input class="elector" type="radio" name="equipo" id="es-windows" checked />
+      <input class="elector" type="radio" name="equipo" id="es-android" />
+
+      <h2 class="pregunta">¿Qué equipo es?</h2>
+
+      <div class="equipos">
+        <label class="equipo" for="es-windows">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+          <b>Una computadora</b>
+          <small>Con Windows</small>
+        </label>
+
+        <label class="equipo" for="es-android">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="5" y="2" width="14" height="20" rx="2.5" />
+            <path d="M11 18h2" />
+          </svg>
+          <b>Una tablet</b>
+          <small>O un celular Android</small>
+        </label>
+      </div>
+
+      <!-- ── Windows ────────────────────────────────────────────────────────────── -->
+      <div class="camino windows">
+        <a class="bajar" href="/SinBuque.exe">
+          <span>Descargar SinBuque<small>Windows · 24 MB</small></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v13M6 11l6 6 6-6M4 21h16" />
+          </svg>
+        </a>
+
+        <ol class="pasos">
+          <li><span>Hacé <b>doble clic</b> en el archivo que se bajó.</span></li>
+          <li><span>Windows va a desconfiar. Es normal: <b>Más información</b> → <b>Ejecutar de todas formas</b>.</span></li>
+          <li><span>Apretá <b>Instalar</b>. No hay nada que configurar.</span></li>
+          <li><span>Entrá a <b>Configuración → Seguridad</b> y poné una contraseña. Anotala.</span></li>
+        </ol>
+
+        <div class="ojo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 8v5M12 17h.01" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+          <p style="margin:0">
+            <b>Que la máquina nunca se suspenda.</b> En <b>Sistema → Inicio/apagado</b>.
+            La pantalla se puede apagar tranquila; si se duerme la máquina, se corta todo.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Android ────────────────────────────────────────────────────────────── -->
+      <div class="camino android">
+        <a class="bajar" href="/SinBuque.apk">
+          <span>Descargar SinBuque<small>Android · 28 MB</small></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v13M6 11l6 6 6-6M4 21h16" />
+          </svg>
+        </a>
+
+        <ol class="pasos">
+          <li><span>Tocá el archivo que se bajó. Está en <b>Descargas</b>.</span></li>
+          <li><span>Android va a pedirte permiso para instalar. Activalo, volvé atrás y tocá <b>Instalar</b>.</span></li>
+          <li><span>Abrí SinBuque y dale los dos permisos: <b>Accesibilidad</b> y <b>Grabar pantalla</b>. Hacen falta los dos.</span></li>
+          <li><span>Entrá a <b>Configuración → Seguridad</b> y poné una contraseña. Anotala.</span></li>
+        </ol>
+
+        <div class="ojo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 8v5M12 17h.01" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+          <p style="margin:0">
+            <b>Batería sin restricciones.</b> En <b>Ajustes → Aplicaciones → SinBuque → Batería</b>.
+            Si no, Android la apaga sola y después no hay forma de entrar.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Los dos datos ──────────────────────────────────────────────────────── -->
+      <section class="cierre">
+        <h2 class="remate">Ahora sí: pasanos esto</h2>
+        <p>Cuando abrís SinBuque, la pantalla principal muestra estos dos datos. Sin ellos no podemos entrar.</p>
+
+        <div class="ventana">
+          <div class="barra">
+            <i></i><i></i><i></i>
+            <span>SinBuque</span>
+          </div>
+          <dl>
+            <div class="dato">
+              <dt>Tu ID</dt>
+              <dd>184 902 337</dd>
+            </div>
+            <div class="dato">
+              <dt>Contraseña</dt>
+              <dd>••••••••</dd>
+            </div>
+          </dl>
+          <p class="pie-dato">El ID son nueve números y no cambia nunca — ése es un ejemplo, el tuyo va a ser otro. La contraseña es la que pusiste vos.</p>
+        </div>
+
+        <h2 class="remate">¿Quién puede entrar?</h2>
+        <p>
+          Solamente quien tenga esos dos datos. El equipo no queda abierto para nadie más, y
+          el programa te avisa en pantalla cada vez que alguien se conecta.
+        </p>
+
+        <p class="nota-final">
+          ¿Se bajó el que no era? Volvé arriba y cambiá el equipo. El archivo de Windows
+          termina en <code>.exe</code> y el de Android en <code>.apk</code>.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
