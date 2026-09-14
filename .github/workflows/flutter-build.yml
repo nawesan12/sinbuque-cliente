@@ -1,4 +1,4 @@
-name: SinBuque · build de Windows
+name: SinBuque · build de Windows y Android
 
 on:
   workflow_call:
@@ -10,12 +10,10 @@ on:
         type: string
         default: "nightly"
 
-# NOTE: F-Droid builder script 'flutter/build_fdroid.sh' reads environment
-# variables from this workflow!
-#
-# It does NOT read build steps, however, so please fix 'flutter/build_fdroid.sh
-# whenever you add changes to Android CI build action ('build-rustdesk-android')
-# in this file!
+# La advertencia de upstream sobre mantener sincronizado 'flutter/build_fdroid.sh' no
+# corre acá: el workflow que lo invocaba ('.github/workflows/fdroid.yml') no está en este
+# repositorio y no publicamos en F-Droid. El script quedó, pero nadie lo llama: el APK sale
+# del job 'build-for-android' y de ningún otro lado.
 
 env:
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
@@ -365,4 +363,250 @@ jobs:
             ./SignOutput/SinBuque-*.msi
             ./SignOutput/SinBuque-*.exe
 
-  # The fallback for the flutter version, we use Sciter for 32bit Windows.
+  build-for-android:
+    needs: [generate-bridge]
+    name: ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          # Sólo arm64: el destino es una tablet. Upstream compila además armv7 y x86_64 y
+          # después pega las tres ABIs en un APK universal; acá eso sería pagar tres veces
+          # los cuarenta minutos de vcpkg para tirar dos tercios. Si algún día hace falta
+          # otra ABI, se agrega una entrada con sus cinco campos: los pasos ya están
+          # parametrizados y no hay que tocar ninguno.
+          - {
+              arch: arm64,
+              target: aarch64-linux-android,
+              android-abi: arm64-v8a,
+              # El directorio del sysroot del NDK no siempre se llama igual que el target de
+              # Rust — armv7-linux-androideabi vive en arm-linux-androideabi —, así que va
+              # como campo aparte en vez de derivarse.
+              sysroot-dir: aarch64-linux-android,
+              ndk-script: ndk_arm64.sh,
+              flutter-platform: android-arm64,
+              os: ubuntu-24.04,
+            }
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      # La lista es la de upstream sin recortar. Varias de estas bibliotecas son de
+      # escritorio y un build de Android no debería tocarlas, pero más de un build.rs las
+      # sondea con pkg-config antes de mirar para qué sistema está compilando. Recortarla
+      # ahorra medio minuto y se paga con un fallo incomprensible a los cuarenta.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+               clang \
+               cmake \
+               curl \
+               gcc-multilib \
+               git \
+               g++ \
+               g++-multilib \
+               libayatana-appindicator3-dev \
+               libasound2-dev \
+               libc6-dev \
+               libclang-dev \
+               libunwind-dev \
+               libgstreamer1.0-dev \
+               libgstreamer-plugins-base1.0-dev \
+               libgtk-3-dev \
+               libpulse-dev \
+               libva-dev \
+               libxcb-randr0-dev \
+               libxcb-shape0-dev \
+               libxcb-xfixes0-dev \
+               libxdo-dev \
+               libxfixes-dev \
+               llvm-dev \
+               nasm \
+               ninja-build \
+               openjdk-17-jdk-headless \
+               pkg-config \
+               tree \
+               wget
+
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Install flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.ANDROID_FLUTTER_VERSION }}
+
+      # El parche va sobre el SDK de Flutter, no sobre este repositorio. El `--check` de
+      # antes evita que el paso muera si algún día la acción sirve un SDK cacheado que ya
+      # lo tenga puesto.
+      - name: Patch flutter
+        run: |
+          cd $(dirname $(dirname $(which flutter)))
+          if [[ "3.24.5" == ${{ env.ANDROID_FLUTTER_VERSION }} ]]; then
+            PARCHE=${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+            git apply --check "$PARCHE" && git apply "$PARCHE" || echo "el parche ya estaba aplicado"
+          fi
+
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
+        id: setup-ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
+      - name: Setup vcpkg with Github Actions binary cache
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgDirectory: /opt/artifacts/vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      # Acá se compilan libvpx, libyuv, opus y aom para la ABI. Es el paso más largo del
+      # job y el que más se rompe, así que ante un fallo escupe los log de vcpkg, que es
+      # lo único que sirve para entender qué pasó.
+      - name: Install vcpkg dependencies
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          if ! ./flutter/build_android_deps.sh "${{ matrix.job.android-abi }}"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
+              echo "$_1:"
+              echo "======"
+              cat "$_1"
+              echo "======"
+              echo ""
+            done
+            exit 1
+          fi
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: "rustfmt"
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          prefix-key: sinbuque-android
+          key: ${{ matrix.job.target }}
+          cache-on-failure: true
+
+      # Este paso tiene que ir antes del de Gradle, y no por costumbre: app/build.gradle
+      # define findRustlsPlatformVerifierMavenDir(), que durante la *configuración* de
+      # Gradle ejecuta `cargo metadata` y después exige el directorio maven/ del crate
+      # rustls-platform-verifier-android. Si cargo no está en el PATH, o si el registry
+      # todavía no bajó ese crate, Gradle se planta antes de compilar una línea.
+      - name: Compilar la biblioteca de Rust
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          rustup target add ${{ matrix.job.target }}
+          cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
+          ./flutter/${{ matrix.job.ndk-script }}
+
+      # El keystore se prepara acá, y no junto al build, para que la falta de un secret se
+      # note a los treinta segundos y no a los cuarenta minutos.
+      #
+      # Upstream, que no tiene clave, degrada la firma a la de debug con un sed sobre
+      # build.gradle y después re-firma el APK ya armado. Como nosotros sí tenemos clave,
+      # va por key.properties, que es el mecanismo que build.gradle ya lee: una pieza
+      # móvil menos, y sin un sed que deje de coincidir en silencio el día que alguien
+      # reacomode build.gradle. key.properties está en flutter/android/.gitignore, así que
+      # no se puede commitear por accidente.
+      - name: Preparar el keystore
+        env:
+          ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+          ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for v in ANDROID_SIGNING_KEY ANDROID_ALIAS ANDROID_KEY_STORE_PASSWORD ANDROID_KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Falta el secret $v. Se carga con 'gh secret set $v'."
+              exit 1
+            fi
+          done
+          echo "$ANDROID_SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/sinbuque.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/sinbuque.jks"
+            echo "storePassword=$ANDROID_KEY_STORE_PASSWORD"
+            echo "keyAlias=$ANDROID_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > flutter/android/key.properties
+
+      - name: Compilar el APK
+        shell: bash
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
+          # El gigabyte por omisión no alcanza para juntar los recursos en un runner.
+          sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
+          JNI=./flutter/android/app/src/main/jniLibs/${{ matrix.job.android-abi }}
+          mkdir -p "$JNI"
+          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.job.sysroot-dir }}/libc++_shared.so" "$JNI/"
+          # El nombre no es negociable: ffi.kt hace System.loadLibrary("rustdesk"), así que
+          # el .so se llama librustdesk.so aunque la app se llame SinBuque.
+          cp ./target/${{ matrix.job.target }}/release/liblibrustdesk.so "$JNI/librustdesk.so"
+          pushd flutter
+          flutter build apk --release --target-platform ${{ matrix.job.flutter-platform }} --split-per-abi
+          popd
+          mkdir -p SignOutput
+          mv flutter/build/app/outputs/flutter-apk/app-${{ matrix.job.android-abi }}-release.apk \
+             SignOutput/SinBuque-${{ env.VERSION }}-android-${{ matrix.job.arch }}.apk
+
+      # Tres preguntas que cuestan diez segundos y que, sin respuesta, se contestan solas
+      # recién cuando alguien no puede instalar el APK: ¿quedó firmado con nuestra clave?,
+      # ¿es la app que creemos?, ¿trae una sola ABI?
+      - name: Verificar firma, identidad y ABI
+        run: |
+          BT="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools"
+          BT="$BT/$(ls -1 "$BT" | sort -V | tail -n1)"
+          APK=SignOutput/SinBuque-${{ env.VERSION }}-android-${{ matrix.job.arch }}.apk
+          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          "$BT/aapt2" dump badging "$APK" | head -3
+          unzip -l "$APK" | grep '\.so$'
+
+      - name: Upload Artifacts
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SinBuque-${{ env.VERSION }}-android-${{ matrix.job.arch }}
+          path: SignOutput/SinBuque-${{ env.VERSION }}-android-${{ matrix.job.arch }}.apk
+
+      - name: Publish Release
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            ./SignOutput/SinBuque-*.apk
