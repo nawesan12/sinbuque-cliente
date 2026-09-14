@@ -19,11 +19,47 @@ programa pueda ver el código con el que se hizo, y acá está.
 | **Menos cosas** | Sin libreta de direcciones, sin cuenta, sin favoritos, sin descubrimiento por red y sin chat. Lo que quedó es lo que usamos. |
 | **Marca** | Ícono y logotipo propios, generados por los scripts de [`res/`](res). |
 
+En Android, además, cambian el nombre de la aplicación, el del servicio de accesibilidad, el
+de la notificación, los íconos y el `applicationId`, que pasa a `online.sinbuque.cliente`. El
+enlace profundo es `sinbuque://`, no `rustdesk://`.
+
+Los textos de la interfaz **no** están traducidos a mano: `src/lang.rs` ya reemplaza
+«RustDesk» por `APP_NAME` en los 49 idiomas cuando el cliente no es el oficial. La única
+excepción es el nombre del servicio de accesibilidad en
+`android_input_permission_tip2`, que tiene que coincidir letra por letra con el
+`android:label` del manifiesto.
+
 ## Cómo se compila
 
-El de Windows sale de GitHub Actions: pestaña **Actions** → *SinBuque · publicar una versión*
-→ **Run workflow**. No hace falta ningún secreto; la firma de código se saltea sola cuando no
-está configurada. El resultado queda publicado como *release*.
+Las dos plataformas salen de GitHub Actions, del mismo workflow: pestaña **Actions** →
+*SinBuque · publicar una versión* → **Run workflow**. El resultado queda publicado como
+*release*.
+
+**Windows** no necesita ningún secreto: la firma de código se saltea sola cuando no está
+configurada.
+
+**Android** sí necesita cuatro, y sin ellos el job falla a propósito en los primeros
+segundos en vez de entregar un APK que no se puede instalar:
+
+| | |
+|---|---|
+| `ANDROID_SIGNING_KEY` | el keystore en base64 (`openssl base64 -A -in sinbuque.jks`) |
+| `ANDROID_ALIAS` | `sinbuque` |
+| `ANDROID_KEY_STORE_PASSWORD` | alfanumérica: `key.properties` es un `.properties` de Java y `\`, `:` y `=` tienen significado ahí |
+| `ANDROID_KEY_PASSWORD` | la misma |
+
+**El keystore no se puede perder.** Android rechaza una actualización firmada con otra clave,
+así que perderlo obliga a desinstalar la app de cada equipo para poder actualizarla.
+
+El APK sale sólo para **arm64-v8a**. Antes de repartirlo conviene confirmar que el equipo
+destino es de 64 bits, porque si no ni siquiera instala:
+
+```bash
+adb shell getprop ro.product.cpu.abi     # tiene que decir arm64-v8a
+```
+
+Para sumar otra arquitectura alcanza con agregar una entrada a la matriz del job
+`build-for-android`; los pasos ya están parametrizados.
 
 No se puede compilar en un servidor Linux: la interfaz es Flutter y `flutter build windows`
-sólo corre sobre Windows.
+sólo corre sobre Windows. El APK sí se podría, pero no hay motivo: Actions ya lo hace.
