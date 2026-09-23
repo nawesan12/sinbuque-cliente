@@ -94,7 +94,21 @@ lazy_static::lazy_static! {
         (keys::OPTION_VERIFICATION_METHOD.to_string(), "use-permanent-password".to_string()),
     ]));
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
-    pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    /// La pantalla remota se ve entera y quieta, siempre.
+    ///
+    /// El default de RustDesk en escritorio es `view_style=original`: tamaño real con
+    /// zoom, y el encuadre persigue al mouse. Con dos monitores duplicados es mareante y
+    /// fue reclamo textual del cliente. `adaptive` = ajustada a la ventana, fija. El
+    /// `scroll_style=scrollbar` es el cinturón por si alguien elige «original» en medio
+    /// de una sesión: se desplaza con barras, no persiguiendo al mouse.
+    ///
+    /// Ojo: los peers ya guardados traen su `view_style` serializado, por eso los
+    /// getters de `ui_session_interface.rs` consultan esta tabla antes que el config
+    /// del peer.
+    pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(HashMap::from([
+        (keys::OPTION_VIEW_STYLE.to_string(), "adaptive".to_string()),
+        (keys::OPTION_SCROLL_STYLE.to_string(), "scrollbar".to_string()),
+    ]));
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     /// La contraseña permanente de fábrica del lado controlado, en el formato hasheado

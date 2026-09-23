@@ -186,7 +186,11 @@ class GroupModel {
               json['error']
                   .toString()
                   .contains('ambiguous column name: status')) {
-            throw translate('upgrade_rustdesk_server_pro_to_{1.1.10}_tip');
+            // El texto original nombra «RustDesk Server Pro» y lang.rs lo excluye a
+            // propósito del reemplazo de marca. Nuestro hbbs OSS no expone este endpoint,
+            // así que en la práctica no se dispara; un mensaje neutro evita que, si algún
+            // proxy devolviera ese error, aparezca la marca ajena.
+            throw 'Esta función no está disponible en este servidor.';
           } else {
             throw json['error'];
           }

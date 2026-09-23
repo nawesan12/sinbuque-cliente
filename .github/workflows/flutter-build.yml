@@ -346,7 +346,12 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          # Sin --app-name, el MSI sale diciendo «RustDesk» en los accesos directos, el
+          # servicio y Agregar o quitar programas. preprocess.py espera que el exe del
+          # dist se llame como la app; el portable ya se generó, así que renombrar acá
+          # es seguro.
+          mv ../../rustdesk/rustdesk.exe ../../rustdesk/SinBuque.exe
+          python preprocess.py --arp -d ../../rustdesk --app-name SinBuque
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10

@@ -243,10 +243,27 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn get_view_style(&self) -> String {
+        // Los peers ya guardados traen `view_style` serializado (p.ej. «original»), así
+        // que el impuesto de OVERWRITE_DISPLAY_SETTINGS tiene que ganar acá, en la
+        // lectura, o sólo regiría para peers nuevos.
+        if let Some(v) = hbb_common::config::OVERWRITE_DISPLAY_SETTINGS
+            .read()
+            .unwrap()
+            .get(keys::OPTION_VIEW_STYLE)
+        {
+            return v.clone();
+        }
         self.lc.read().unwrap().view_style.clone()
     }
 
     pub fn get_scroll_style(&self) -> String {
+        if let Some(v) = hbb_common::config::OVERWRITE_DISPLAY_SETTINGS
+            .read()
+            .unwrap()
+            .get(keys::OPTION_SCROLL_STYLE)
+        {
+            return v.clone();
+        }
         self.lc.read().unwrap().scroll_style.clone()
     }
 
@@ -2021,7 +2038,7 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                 || handler.args[2].parse::<i32>().unwrap_or(0) <= 0
                 || port <= 0
             {
-                handler.on_error("Invalid arguments, usage:<br><br> rustdesk --port-forward remote-id listen-port remote-host remote-port");
+                handler.on_error("Invalid arguments, usage:<br><br> sinbuque --port-forward remote-id listen-port remote-host remote-port");
             }
             let remote_host = handler.args[1].clone();
             let remote_port = handler.args[2].parse::<i32>().unwrap_or(0);
