@@ -249,7 +249,7 @@ impl<T: InvokeUiSession> Session<T> {
         if let Some(v) = hbb_common::config::OVERWRITE_DISPLAY_SETTINGS
             .read()
             .unwrap()
-            .get(keys::OPTION_VIEW_STYLE)
+            .get(hbb_common::config::keys::OPTION_VIEW_STYLE)
         {
             return v.clone();
         }
@@ -260,7 +260,7 @@ impl<T: InvokeUiSession> Session<T> {
         if let Some(v) = hbb_common::config::OVERWRITE_DISPLAY_SETTINGS
             .read()
             .unwrap()
-            .get(keys::OPTION_SCROLL_STYLE)
+            .get(hbb_common::config::keys::OPTION_SCROLL_STYLE)
         {
             return v.clone();
         }
