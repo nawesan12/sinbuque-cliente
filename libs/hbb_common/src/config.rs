@@ -88,12 +88,31 @@ lazy_static::lazy_static! {
         // el escenario que este programa existe para evitar.
         (keys::OPTION_ALLOW_AUTO_DISCONNECT.to_string(), "N".to_string()),
         (keys::OPTION_AUTO_DISCONNECT_TIMEOUT.to_string(), "0".to_string()),
+        // Sólo contraseña permanente: la temporal rota en cada conexión y obliga a que
+        // alguien del otro lado la dicte de nuevo. Con la permanente de fábrica (ver
+        // `HARD_SETTINGS`), reconectar tras un corte no depende de ninguna persona.
+        (keys::OPTION_VERIFICATION_METHOD.to_string(), "use-permanent-password".to_string()),
     ]));
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
-    pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    /// La contraseña permanente de fábrica del lado controlado, en el formato hasheado
+    /// de HBBS: `password` = `"00"` + base64(SHA256(clave ‖ salt)) y `salt` en claro.
+    ///
+    /// Con esto, entrar es «pasame los nueve números» y nada más: el visor manda la clave
+    /// solo (ver `default-connect-password` en `BUILTIN_SETTINGS`) y acá se valida sola.
+    /// Nadie la ve, nadie la dicta, y una reconexión tras un corte de red no necesita a
+    /// ninguna persona del otro lado. La clave en claro es `sinbuque`, por si algún día
+    /// hay que tipearla a mano desde un cliente genérico.
+    ///
+    /// Ojo: una contraseña permanente puesta a mano en una máquina **tapa** este preset
+    /// (`is_using_preset_password`); las instalaciones tienen que quedar sin clave local.
+    pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(HashMap::from([
+        // SHA256("sinbuque" + "sinbuque-salt"), prefijo "00" = formato hasheado.
+        ("password".to_string(), "00A+et3T/BpUYnDnDGMzmdOenXzBaOk6WLC8tc0d2/DWA=".to_string()),
+        ("salt".to_string(), "sinbuque-salt".to_string()),
+    ]));
     /// Los ajustes de fábrica de SinBuque.
     ///
     /// Esta tabla la consulta el programa entero por su cuenta; llenarla acá es la forma
@@ -107,6 +126,10 @@ lazy_static::lazy_static! {
         (keys::OPTION_HIDE_POWERED_BY_ME.to_string(), "Y".to_string()),
         // Las tarjetas de ayuda que invitan a configurar cosas que ya vienen configuradas.
         (keys::OPTION_HIDE_HELP_CARDS.to_string(), "Y".to_string()),
+        // La misma clave del preset de `HARD_SETTINGS`, en claro: el visor la hashea con
+        // el salt que le manda el equipo remoto y autentica sin preguntar nada. Es la
+        // mitad «visor» de que alcance con los nueve números.
+        (keys::OPTION_DEFAULT_CONNECT_PASSWORD.to_string(), "sinbuque".to_string()),
     ]));
 }
 

@@ -996,10 +996,10 @@ class FfiModel with ChangeNotifier {
         title == 'Connection Error' &&
         text == 'Remote desktop is offline' &&
         _pi.isSet.isTrue) {
-      // Auto retry for ~30s (server's peer offline threshold) when controlled peer's account changes
-      // (e.g., signout, switch user, login into OS) causes temporary offline via websocket/tcp connection.
-      // The actual wait may exceed 30s (e.g., 20s elapsed + 16s next retry = 36s), which is acceptable
-      // since the controlled side reconnects quickly after account changes.
+      // Auto retry for ~120s when the controlled peer goes temporarily offline —
+      // account changes (signout, switch user, login into OS) and, in our fleet,
+      // the ISP rotating the public IP: the peer's re-registration with the
+      // rendezvous can take longer than the server's ~30s offline threshold.
       // Uses time-based check instead of _reconnects count because user can manually retry.
       // https://github.com/rustdesk/rustdesk/discussions/14048
       if (_offlineReconnectStartTime == null) {
@@ -1009,7 +1009,7 @@ class FfiModel with ChangeNotifier {
       } else {
         final elapsed =
             DateTime.now().difference(_offlineReconnectStartTime!).inSeconds;
-        if (elapsed < 30) {
+        if (elapsed < 120) {
           return true;
         }
       }
@@ -1083,7 +1083,10 @@ class FfiModel with ChangeNotifier {
       _timer = Timer(Duration(seconds: _reconnects), () {
         reconnect(dialogManager, sessionId, false);
       });
-      _reconnects *= 2;
+      // Tope de 15 s: sin esto el intervalo se duplica sin límite y, tras varios
+      // fallos seguidos (el proveedor rota la IP pública 2-3 veces por día), el
+      // reintento queda en horas — justo cuando más falta reconectar rápido.
+      _reconnects = min(_reconnects * 2, 15);
     } else {
       _reconnects = 1;
       _offlineReconnectStartTime = null;
