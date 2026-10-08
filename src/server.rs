@@ -588,6 +588,9 @@ pub async fn start_server(is_server: bool, no_server: bool) {
 
     if is_server {
         crate::common::set_server_running(true);
+        // SinBuque: la compu controlada se mantiene despierta desde que arranca el
+        // servidor, no desde la primera sesión (ver `start_wakelock_thread`).
+        connection::sinbuque_keep_awake();
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);

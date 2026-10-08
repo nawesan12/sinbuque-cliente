@@ -258,6 +258,7 @@ class FfiModel with ChangeNotifier {
     _inputBlocked = false;
     _timer?.cancel();
     _timer = null;
+    cancelFirstImageWatchdog();
     resetRestartReconnectState();
     clearPermissions();
     waitForImageTimer?.cancel();
@@ -914,6 +915,16 @@ class FfiModel with ChangeNotifier {
       parent.target?.inputModel.setRelativeMouseMode(false);
     }
 
+    // SinBuque: del otro lado nunca hay nadie. Cualquier cartel que en RustDesk espera
+    // a una persona —contraseña, «esperando que acepten», «probá en un minuto», un corte—
+    // acá se vuelve un reintento automático con backoff. La única salida es que quien
+    // controla cierre la pestaña.
+    if (sinbuqueAutoRetry(type, title, text)) {
+      showMsgBox(sessionId, 'error', 'Connection Error', text, link, true,
+          dialogManager);
+      return;
+    }
+
     if (type == 're-input-password') {
       wrongPasswordDialog(sessionId, dialogManager, type, title, text);
     } else if (type == 'input-2fa') {
@@ -980,9 +991,53 @@ class FfiModel with ChangeNotifier {
     }
   }
 
+  /// SinBuque: hasta que llega el primer cuadro, una capa transparente cubre la
+  /// pantalla remota y se come todos los clics. Si el cuadro no llega, eso es una
+  /// ventana trabada; a los 15 s se reconecta sola.
+  Timer? _firstImageWatchdog;
+
+  void _armFirstImageWatchdog(SessionID sessionId) {
+    _firstImageWatchdog?.cancel();
+    _firstImageWatchdog = Timer(const Duration(seconds: 15), () {
+      _firstImageWatchdog = null;
+      final ffi = parent.target;
+      if (ffi == null || ffi.closed || waitForFirstImage.isFalse) return;
+      debugPrint('SinBuque: no llegó el primer cuadro, se reconecta');
+      reconnect(ffi.dialogManager, sessionId, false);
+    });
+  }
+
+  void cancelFirstImageWatchdog() {
+    _firstImageWatchdog?.cancel();
+    _firstImageWatchdog = null;
+  }
+
   void resetRestartReconnectState() {
     _restartReconnectDelayTimer?.cancel();
     _restartReconnectDelayTimer = null;
+  }
+
+  /// SinBuque: ¿este cartel se resuelve reintentando solo?
+  ///
+  /// Sí para todo lo que en RustDesk queda esperando a alguien: pedidos de contraseña
+  /// (con `approve-mode=password` y la contraseña de fábrica no deberían aparecer nunca, y
+  /// si aparecen es un estado transitorio), «esperando que acepten», el freno de un
+  /// minuto por intentos, y cualquier error de conexión salvo un ID que no existe.
+  bool sinbuqueAutoRetry(dynamic type, dynamic title, dynamic text) {
+    if (type is! String || title is! String || text is! String) return false;
+    if (type == 're-input-password' ||
+        type == 'input-password' ||
+        type == 'wait-remote-accept-nook') {
+      return true;
+    }
+    final t = text.toLowerCase();
+    if (t.contains('try 1 minute later') || t.contains('too many wrong attempts')) {
+      return true;
+    }
+    if (type == 'error' && title == 'Connection Error') {
+      return !t.contains('not exist');
+    }
+    return false;
   }
 
   /// Auto-retry check for "Remote desktop is offline" error.
@@ -1009,7 +1064,9 @@ class FfiModel with ChangeNotifier {
       } else {
         final elapsed =
             DateTime.now().difference(_offlineReconnectStartTime!).inSeconds;
-        if (elapsed < 120) {
+        // SinBuque: sin tope. Un reinicio por Windows Update tarda más de dos minutos
+        // y el visor no puede rendirse mientras la ventana siga abierta.
+        if (elapsed >= 0) {
           return true;
         }
       }
@@ -1106,6 +1163,11 @@ class FfiModel with ChangeNotifier {
 
   void reconnect(OverlayDialogManager dialogManager, SessionID sessionId,
       bool forceRelay) {
+    // SinBuque: un reintento pendiente que dispara después de que la sesión ya volvió
+    // corta la sesión sana y vuelve a levantar la capa de «esperando imagen», que no
+    // deja hacer clic. Cualquier reconexión anula el reintento que quedaba programado.
+    _timer?.cancel();
+    _timer = null;
     // Disable relative mouse mode before reconnecting to ensure cursor is released.
     parent.target?.inputModel.setRelativeMouseMode(false);
     _cancelPendingMonitorRestore();
@@ -1447,6 +1509,10 @@ class FfiModel with ChangeNotifier {
         resetRestartReconnectState();
         waitForFirstImage.value = true;
         isRefreshing = false;
+        // SinBuque: la sesión volvió, no queda ningún reintento pendiente.
+        _timer?.cancel();
+        _timer = null;
+        _armFirstImageWatchdog(sessionId);
       }
       Map<String, dynamic> features = json.decode(evt['features']);
       _pi.features.privacyMode = features['privacy_mode'] == true;
@@ -3951,6 +4017,7 @@ class FFI {
     }
     if (ffiModel.waitForFirstImage.value == true) {
       ffiModel.waitForFirstImage.value = false;
+      ffiModel.cancelFirstImageWatchdog();
       ffiModel.cancelPendingRestoreTimer();
       ffiModel.resetRestartReconnectState();
       dialogManager.dismissAll();

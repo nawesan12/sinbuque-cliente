@@ -92,6 +92,16 @@ lazy_static::lazy_static! {
         // alguien del otro lado la dicte de nuevo. Con la permanente de fábrica (ver
         // `HARD_SETTINGS`), reconectar tras un corte no depende de ninguna persona.
         (keys::OPTION_VERIFICATION_METHOD.to_string(), "use-permanent-password".to_string()),
+        // **Nunca un botón de Aceptar.** Con `both` (el default), cualquier problema con la
+        // contraseña abría en la compu controlada una ventana que espera un clic, y la
+        // conexión se quedaba colgada ahí: el 2026-10-08 a las seis de la mañana hubo que
+        // mandar a alguien a la oficina. Sólo contraseña, y la de fábrica gana siempre
+        // (`Config::is_using_preset_password`).
+        (keys::OPTION_APPROVE_MODE.to_string(), "password".to_string()),
+        // Sin la ventanita de conexión en la compu controlada: su botón «Desconectar» era una
+        // forma de que alguien de allá cortara al que administra sin querer. Sólo rige con
+        // aprobación por contraseña y contraseña permanente (`password_security::hide_cm`).
+        ("allow-hide-cm".to_string(), "Y".to_string()),
     ]));
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     /// La pantalla remota se ve entera y quieta, siempre.
@@ -138,6 +148,9 @@ lazy_static::lazy_static! {
         // corresponde —en el Acerca de, en la licencia y en el repositorio— y no adentro de
         // una pantalla que va a mirar alguien que sólo quiere que le arreglen la máquina.
         (keys::OPTION_HIDE_POWERED_BY_ME.to_string(), "Y".to_string()),
+        // Nadie carga una contraseña permanente a mano: no serviría (la de fábrica gana) y
+        // sólo confundiría.
+        (keys::OPTION_DISABLE_CHANGE_PERMANENT_PASSWORD.to_string(), "Y".to_string()),
         // Las tarjetas de ayuda que invitan a configurar cosas que ya vienen configuradas.
         (keys::OPTION_HIDE_HELP_CARDS.to_string(), "Y".to_string()),
         // La misma clave del preset de `HARD_SETTINGS`, en claro: el visor la hashea con
@@ -1460,6 +1473,10 @@ impl Config {
     }
 
     pub fn has_permanent_password() -> bool {
+        // SinBuque: la de fábrica gana siempre (ver `is_using_preset_password`).
+        if Self::has_usable_preset_password() {
+            return true;
+        }
         let (local_storage, local_salt) = Self::get_local_permanent_password_storage_and_salt();
         if !local_storage.is_empty() {
             return local_permanent_password_storage_is_usable_for_auth(
@@ -1475,9 +1492,15 @@ impl Config {
         preset_permanent_password_storage_is_usable_for_auth(&preset_storage, &preset_salt)
     }
 
+    /// SinBuque: si hay contraseña de fábrica, es la única que cuenta.
+    ///
+    /// En RustDesk una contraseña permanente puesta a mano **tapa** la de fábrica, y el
+    /// visor —que manda `default-connect-password` solo— deja de poder entrar sin que
+    /// alguien del otro lado haga clic. Eso fue lo que dejó a una compu fuera de alcance el
+    /// 2026-10-08 a las seis de la mañana. Acá la clave local queda guardada pero no se usa
+    /// ni para validar ni para la sal que se le manda al visor.
     pub fn is_using_preset_password() -> bool {
-        let (local_storage, _) = Self::get_local_permanent_password_storage_and_salt();
-        local_storage.is_empty() && Self::has_usable_preset_password()
+        Self::has_usable_preset_password()
     }
 
     pub fn get_preset_password_storage_and_salt() -> (String, String) {
@@ -1488,6 +1511,12 @@ impl Config {
     }
 
     pub fn get_effective_permanent_password_salt() -> String {
+        let (preset_storage, preset_salt) = Self::get_preset_password_storage_and_salt();
+        if !preset_salt.is_empty()
+            && preset_permanent_password_storage_is_usable_for_auth(&preset_storage, &preset_salt)
+        {
+            return preset_salt;
+        }
         let (local_storage, local_salt) = Self::get_local_permanent_password_storage_and_salt();
         if !local_storage.is_empty() {
             if local_permanent_password_storage_is_usable_for_auth(&local_storage, &local_salt) {
@@ -3443,6 +3472,29 @@ mod tests {
             assert!(Config::has_usable_preset_password());
             assert!(Config::is_using_preset_password());
             assert_eq!(Config::get_effective_permanent_password_salt(), salt);
+        });
+    }
+
+    #[test]
+    fn test_sinbuque_preset_password_wins_over_local_password() {
+        let preset_salt = "sinbuque-salt";
+        let h1 = compute_permanent_password_h1("sinbuque", preset_salt);
+        let storage = "00".to_owned() + &base64::encode(h1, base64::Variant::Original);
+        let hard_settings = HashMap::from([
+            ("password".to_owned(), storage),
+            ("salt".to_owned(), preset_salt.to_owned()),
+        ]);
+
+        let mut config = Config::default();
+        config.salt = "local-salt".to_owned();
+        let local_h1 = compute_permanent_password_h1("otra-clave", "local-salt");
+        config.password = encode_permanent_password_encrypted_storage_from_h1(&local_h1).unwrap();
+
+        with_config_and_hard_settings(config, hard_settings, || {
+            assert!(Config::has_local_permanent_password());
+            assert!(Config::is_using_preset_password());
+            assert!(Config::has_permanent_password());
+            assert_eq!(Config::get_effective_permanent_password_salt(), preset_salt);
         });
     }
 

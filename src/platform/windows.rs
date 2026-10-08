@@ -3712,8 +3712,20 @@ if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{ap
     } else {
         format!("
 sc create {app_name} binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{app_name} Service\"
+sc failure {app_name} reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc failureflag {app_name} 1
+powercfg /change monitor-timeout-ac 0
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+powercfg /hibernate off
 sc start {app_name}
 ",
+    // SinBuque: nadie va a estar del otro lado para levantar nada.
+    // - `sc failure`: si el servicio se cae o se cuelga, Windows lo vuelve a arrancar a
+    //   los 5 s, siempre (`failureflag 1` cubre también cuando sale con error).
+    // - `powercfg`: la compu no se suspende ni hiberna y la pantalla no se apaga. Una
+    //   compu dormida no se puede despertar desde lejos, y una pantalla apagada da negro
+    //   al reconectar (rustdesk#9884).
     app_name = crate::get_app_name())
     }
 }

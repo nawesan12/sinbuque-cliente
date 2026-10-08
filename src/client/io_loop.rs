@@ -11,6 +11,13 @@ use crate::{
     ui_session_interface::{InvokeUiSession, Session},
 };
 
+/// SinBuque: sin datos de la controlada durante este tiempo, la conexión se da por muerta.
+const SINBUQUE_DEAD_LINK: Duration = Duration::from_secs(20);
+/// SinBuque: tras este tiempo sin cuadros nuevos, se le pide uno a la controlada…
+const SINBUQUE_VIDEO_QUIET: Duration = Duration::from_secs(20);
+/// …y si no llega en este plazo, la imagen está trabada y se reconecta.
+const SINBUQUE_VIDEO_REFRESH_WAIT: Duration = Duration::from_secs(10);
+
 // Empirical no-data window before exposing the restart reconnect state to the UI.
 // Restart msgbox text is kept as a legacy UI fallback; Flutter handles the type as a control event.
 const RESTART_REMOTE_DEVICE_NO_DATA_TIMEOUT: Duration = Duration::from_secs(5);
@@ -233,6 +240,9 @@ impl<T: InvokeUiSession> Remote<T> {
                 let mut status_timer =
                     crate::rustdesk_interval(time::interval(Duration::new(1, 0)));
                 let mut fps_instant = Instant::now();
+                // SinBuque: vigía de video quieto (ver `SINBUQUE_VIDEO_QUIET`).
+                let mut last_video_frame = Instant::now();
+                let mut video_refresh_asked: Option<Instant> = None;
 
                 let _keep_it = client::hc_connection(feedback, rendezvous_server, token).await;
                 let mut last_recv_time = Instant::now();
@@ -296,6 +306,14 @@ impl<T: InvokeUiSession> Remote<T> {
                             }
                         }
                         _ = status_timer.tick() => {
+                            // SinBuque: la controlada manda un latido por segundo. Veinte
+                            // segundos sin nada es una conexión muerta, y cuanto antes se
+                            // admite, antes arranca la reconexión. El chequeo de `self.timer`
+                            // (30 s, revisado cada 30 s) tardaba hasta un minuto en verlo.
+                            if self.is_connected && last_recv_time.elapsed() >= SINBUQUE_DEAD_LINK {
+                                self.handler.msgbox("error", "Connection Error", "Timeout", "");
+                                break;
+                            }
                             if self.handler.is_restarting_remote_device()
                                 && last_recv_time.elapsed() >= RESTART_REMOTE_DEVICE_NO_DATA_TIMEOUT
                             {
@@ -315,9 +333,28 @@ impl<T: InvokeUiSession> Remote<T> {
                                 // Correcting the inaccuracy of status_timer
                                 (k.clone(), (*v.frame_count.read().unwrap() as i32) * 1000 / elapsed as i32)
                             }).collect::<HashMap<usize, i32>>();
+                            let frames: usize = self.video_threads.iter().map(|(_, v)| *v.frame_count.read().unwrap()).sum();
                             self.video_threads.iter().for_each(|(_, v)| {
                                 *v.frame_count.write().unwrap() = 0;
                             });
+                            // SinBuque: el latido mantiene viva una sesión aunque la
+                            // controlada haya dejado de mandar imagen, y del lado del visor
+                            // eso es una pantalla congelada que no responde. Una pantalla
+                            // quieta tampoco manda cuadros, así que primero se pide uno: si
+                            // llega, estaba todo bien; si no llega, se reconecta.
+                            if frames > 0 || !self.first_frame || self.video_threads.is_empty() {
+                                last_video_frame = Instant::now();
+                                video_refresh_asked = None;
+                            } else if let Some(asked) = video_refresh_asked {
+                                if asked.elapsed() >= SINBUQUE_VIDEO_REFRESH_WAIT {
+                                    log::warn!("SinBuque: sin video tras pedir un cuadro, se reconecta");
+                                    self.handler.msgbox("error", "Connection Error", "Timeout", "");
+                                    break;
+                                }
+                            } else if last_video_frame.elapsed() >= SINBUQUE_VIDEO_QUIET {
+                                allow_err!(peer.send(&client::LoginConfigHandler::refresh()).await);
+                                video_refresh_asked = Some(Instant::now());
+                            }
                             self.fps_control(direct, fps.clone());
                             let chroma = self.chroma.read().unwrap().clone();
                             let chroma = match chroma {

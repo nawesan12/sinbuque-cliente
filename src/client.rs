@@ -3501,8 +3501,24 @@ pub async fn handle_hash(
             }
         }
     }
-    // last password
-    let mut password = lc.read().unwrap().password.clone();
+    // SinBuque: la contraseña de fábrica va primero y, si está, es la única.
+    //
+    // Todas las compus de SinBuque validan ésa (`Config::is_using_preset_password`). Las otras
+    // fuentes —el hash de la sesión anterior, la «recordada» del peer— pueden haber quedado
+    // viejas, y con una vieja la reconexión terminaba en un diálogo esperando a una persona.
+    let default_connect_password =
+        crate::ui_interface::get_builtin_option(keys::OPTION_DEFAULT_CONNECT_PASSWORD);
+    let using_default_connect_password = !default_connect_password.is_empty();
+    let mut password = if !using_default_connect_password {
+        // last password
+        lc.read().unwrap().password.clone()
+    } else {
+        let mut hasher = Sha256::new();
+        hasher.update(default_connect_password.clone());
+        hasher.update(&hash.salt);
+        lc.write().unwrap().password_source = PasswordSource::SharedAb(default_connect_password);
+        hasher.finalize()[..].into()
+    };
     // preset password
     if password.is_empty() {
         if !password_preset.is_empty() {
@@ -3518,7 +3534,7 @@ pub async fn handle_hash(
     // Currently it's used only when click shared ab peer card
     let shared_password = lc.write().unwrap().shared_password.take();
     if let Some(shared_password) = shared_password {
-        if !shared_password.is_empty() {
+        if !shared_password.is_empty() && !using_default_connect_password {
             let mut hasher = Sha256::new();
             hasher.update(shared_password.clone());
             hasher.update(&hash.salt);

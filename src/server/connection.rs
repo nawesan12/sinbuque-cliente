@@ -2315,9 +2315,20 @@ impl Connection {
             };
             // Strictly check storage usability before auth so malformed encrypted/hash storage
             // cannot fall back to being accepted as legacy plaintext.
+            //
+            // SinBuque: la de fábrica se prueba primero y, si existe, es la única. Una clave
+            // puesta a mano no puede tapar la que el visor manda solo
+            // (ver `Config::is_using_preset_password`).
             let (local_storage, local_salt) =
                 Config::get_local_permanent_password_storage_and_salt();
-            if !local_storage.is_empty() {
+            if Config::is_using_preset_password() {
+                let (hard, salt) = Config::get_preset_password_storage_and_salt();
+                if self.validate_preset_password_storage(&hard, &salt) {
+                    self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::PermanentPassword);
+                    print_fallback();
+                    return true;
+                }
+            } else if !local_storage.is_empty() {
                 if local_permanent_password_storage_is_usable_for_auth(&local_storage, &local_salt)
                     && self.validate_password_storage(&local_storage)
                 {
@@ -4099,7 +4110,11 @@ impl Connection {
             .copied()
             .unwrap_or((0, 0, 0));
 
-        let res = if failure.2 > 30 {
+        // SinBuque: sin el bloqueo por 30 fallos acumulados. Ése sólo se limpia reiniciando
+        // el programa en la compu controlada —o sea, con alguien allá—, y los visores de una
+        // misma oficina comparten IP: una contraseña vieja recordada en uno alcanzaba para
+        // dejar afuera a todos. El freno de un minuto de abajo queda y se cura solo.
+        let res = if false && failure.2 > 30 {
             self.send_login_error("Too many wrong attempts").await;
             self.post_alarm_audit(
                 AlarmAuditType::ExceedThirtyAttempts,
@@ -6180,13 +6195,20 @@ impl FileRemoveLogControl {
     }
 }
 
+/// SinBuque: arranca el hilo del bloqueo de suspensión, que desde que existe mantiene
+/// la compu y la pantalla despiertas.
+pub fn sinbuque_keep_awake() {
+    lazy_static::initialize(&WAKELOCK_SENDER);
+}
+
 fn start_wakelock_thread() -> std::sync::mpsc::Sender<(usize, usize)> {
     // Check if we should keep awake during incoming sessions
     use crate::platform::{get_wakelock, WakeLock};
     let (tx, rx) = std::sync::mpsc::channel::<(usize, usize)>();
     std::thread::spawn(move || {
-        let mut wakelock: Option<WakeLock> = None;
-        let mut last_display = false;
+        // SinBuque: el bloqueo arranca con el proceso, no con la primera sesión.
+        let mut wakelock: Option<WakeLock> = Some(get_wakelock(true));
+        let mut last_display = true;
         loop {
             match rx.recv() {
                 Ok((conn_count, remote_count)) => {
@@ -6194,6 +6216,10 @@ fn start_wakelock_thread() -> std::sync::mpsc::Sender<(usize, usize)> {
                         keys::OPTION_KEEP_AWAKE_DURING_INCOMING_SESSIONS,
                     );
                     *WAKELOCK_KEEP_AWAKE_OPTION.lock().unwrap() = Some(keep_awake);
+                    // SinBuque: despierta siempre, haya sesión o no. Entre una caída y la
+                    // reconexión no hay sesión, y si en ese hueco Windows apaga la pantalla
+                    // o se suspende, la reconexión encuentra negro o no encuentra a nadie.
+                    let (conn_count, keep_awake, remote_count) = (1, true, remote_count.max(1));
                     if conn_count == 0 || !keep_awake {
                         if wakelock.is_some() {
                             wakelock = None;
