@@ -1,0 +1,41 @@
+SinBuque - Ver y controlar celulares por USB
+============================================
+
+QUE ES
+  Abre en la pantalla de esta computadora los celulares que estan
+  enchufados por USB, para verlos y controlarlos con mouse y teclado.
+
+USO
+  Doble clic en "Ver celulares.bat".
+  Queda escaneando: cada celular autorizado se abre solo, con su propio
+  puerto libre. Podes enchufar MAS celulares en cualquier momento y
+  aparecen solos, sin volver a tocar nada. Si uno se cae o el telefono
+  se reinicia, el vigia lo reabre.
+  Para detener todo: doble clic en "Detener.bat".
+
+PRIMERA VEZ, EN CADA CELULAR (una sola vez)
+  1) Activar la Depuracion por USB (Ajustes > Opciones de desarrollador).
+  2) Al enchufarlo, en el telefono aparece "Permitir depuracion USB":
+     tildar "Permitir siempre desde esta computadora" y Aceptar.
+  Despues de eso, aguanta reinicios del celu sin volver a tocar nada.
+
+QUE EL VIGIA ARRANQUE SOLO AL PRENDER LA PC (opcional, recomendado)
+  1) Clic derecho en "Ver celulares.bat" > Crear acceso directo.
+  2) Tecla Windows + R, escribir:  shell:startup  y Enter.
+  3) Mover ese acceso directo a la carpeta que se abrio.
+  Asi, cuando la PC prende, los celulares quedan listos sin que nadie toque nada.
+
+QUE RESUELVE EL VIGIA Y QUE NO
+  Reabre solo: ventana cerrada por error, reinicio del celu, USB que se
+    reconecta. No hace falta que alguien este mirando.
+  No puede arreglar en remoto: un cable desenchufado o roto, o la PC apagada.
+    Eso necesita a alguien en el lugar.
+
+SI NO APARECE NINGUN CELULAR
+  Casi siempre es el paso 2 de arriba (falta Aceptar en el telefono),
+  o falta el driver USB del celular en Windows.
+
+NOTA
+  Las pantallas sensibles de apps de pagos/banca salen en NEGRO: es una
+  proteccion de Android (FLAG_SECURE), igual que con Vysor o cualquier
+  espejado. No es una falla del programa.

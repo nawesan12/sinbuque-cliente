@@ -233,15 +233,18 @@
       .equipo small { color: var(--tinta-suave); font-size: 0.86rem; }
 
       #es-windows:checked ~ .equipos [for="es-windows"],
-      #es-android:checked ~ .equipos [for="es-android"] {
+      #es-android:checked ~ .equipos [for="es-android"],
+      #es-celu:checked ~ .equipos [for="es-celu"] {
         border-color: var(--marca);
         background: var(--marca-tenue);
       }
       #es-windows:checked ~ .equipos [for="es-windows"] svg,
-      #es-android:checked ~ .equipos [for="es-android"] svg { color: var(--marca); }
+      #es-android:checked ~ .equipos [for="es-android"] svg,
+      #es-celu:checked ~ .equipos [for="es-celu"] svg { color: var(--marca); }
       .elector:focus-visible ~ .equipos .equipo { }
       #es-windows:focus-visible ~ .equipos [for="es-windows"],
-      #es-android:focus-visible ~ .equipos [for="es-android"] {
+      #es-android:focus-visible ~ .equipos [for="es-android"],
+      #es-celu:focus-visible ~ .equipos [for="es-celu"] {
         outline: 3px solid var(--marca);
         outline-offset: 3px;
       }
@@ -249,7 +252,8 @@
       /* ── Los dos caminos ─────────────────────────────────────────────────────────── */
       .camino { display: none; }
       #es-windows:checked ~ .camino.windows,
-      #es-android:checked ~ .camino.android { display: block; animation: entrar 0.28s ease both; }
+      #es-android:checked ~ .camino.android,
+      #es-celu:checked ~ .camino.celu { display: block; animation: entrar 0.28s ease both; }
 
       @keyframes entrar {
         from { opacity: 0; transform: translateY(6px); }
@@ -453,6 +457,7 @@
            mira hacia adelante. -->
       <input class="elector" type="radio" name="equipo" id="es-windows" checked />
       <input class="elector" type="radio" name="equipo" id="es-android" />
+      <input class="elector" type="radio" name="equipo" id="es-celu" />
 
       <h2 class="pregunta">¿Qué equipo es?</h2>
 
@@ -473,6 +478,15 @@
           </svg>
           <b>Una tablet</b>
           <small>O un celular Android</small>
+        </label>
+
+        <label class="equipo" for="es-celu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="7" y="3" width="10" height="18" rx="2.5" />
+            <path d="M12 3V1M10 1h4" />
+          </svg>
+          <b>Celulares por USB</b>
+          <small>Varios, desde una PC</small>
         </label>
       </div>
 
@@ -528,6 +542,34 @@
           <p style="margin:0">
             <b>Batería sin restricciones.</b> En <b>Ajustes → Aplicaciones → SinBuque → Batería</b>.
             Si no, Android la apaga sola y después no hay forma de entrar.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Celulares por USB ─────────────────────────────────────────────────────── -->
+      <div class="camino celu">
+        <a class="bajar" href="/SinBuque-Celulares.zip">
+          <span>Descargar herramienta de celulares<small>Windows · 11 MB</small></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v13M6 11l6 6 6-6M4 21h16" />
+          </svg>
+        </a>
+
+        <ol class="pasos">
+          <li><span>Clic derecho en el ZIP → <b>Extraer todo</b>. No lo abras desde adentro del ZIP.</span></li>
+          <li><span>Entrá a la carpeta y doble clic en <b>Ver celulares.bat</b>.</span></li>
+          <li><span>En cada celu, una vez: activá <b>Depuración por USB</b> y tocá <b>Permitir siempre desde esta computadora</b>.</span></li>
+        </ol>
+
+        <div class="ojo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 8v5M12 17h.01" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+          <p style="margin:0">
+            <b>No se instala nada en el teléfono.</b> Lo ves y lo controlás por cable desde
+            esta PC. Las pantallas de apps de pago o banca salen en <b>negro</b> —es una
+            protección de Android, igual que con Vysor—, el resto del celu se ve bien.
           </p>
         </div>
       </div>
