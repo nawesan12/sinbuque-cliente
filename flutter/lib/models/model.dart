@@ -1002,6 +1002,9 @@ class FfiModel with ChangeNotifier {
       _firstImageWatchdog = null;
       final ffi = parent.target;
       if (ffi == null || ffi.closed || waitForFirstImage.isFalse) return;
+      // Sólo contra Windows, que manda un cuadro apenas se conecta. Android manda
+      // cuadros sólo cuando la pantalla cambia (ver el vigía de video en io_loop.rs).
+      if (_pi.platform != kPeerPlatformWindows) return;
       debugPrint('SinBuque: no llegó el primer cuadro, se reconecta');
       reconnect(ffi.dialogManager, sessionId, false);
     });
@@ -1036,6 +1039,11 @@ class FfiModel with ChangeNotifier {
     }
     if (type == 'error' && title == 'Connection Error') {
       return !t.contains('not exist');
+    }
+    // Una conexión directa que se corta (10054/104) llega como «relay-hint», con botones
+    // y sin temporizador. Se reintenta igual que cualquier corte.
+    if (type == 'relay-hint' || type == 'relay-hint2') {
+      return true;
     }
     return false;
   }

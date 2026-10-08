@@ -3396,15 +3396,26 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
     // while I cannot find them by `tasklist` or the methods above.
     // There's should be 4 processes running: service, server, tray and main window.
     // But only 2 processes are shown in the tasklist.
+    // SinBuque: la actualización también deja puesto el reinicio automático y la energía
+    // (ver `get_create_service`), así llega a las compus que se actualizan sin reinstalar.
+    // Mientras se copia el ejecutable el reinicio queda apagado: si no, el `taskkill` cuenta
+    // como una caída y Windows relanzaría el servicio a mitad de la copia.
     let cmds = format!(
         "
 chcp 65001
+sc failure {app_name} reset= 0 actions= \"\"
 sc stop {app_name}
 taskkill /F /IM {app_name}.exe{filter}
 {reg_cmd}
 {copy_exe}
 {rename_exe}
 {remove_meta_toml}
+sc failure {app_name} reset= 86400 actions= restart/5000/restart/5000/restart/5000
+sc failureflag {app_name} 1
+powercfg /change monitor-timeout-ac 0
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+powercfg /hibernate off
 {restore_service_cmd}
 {uninstall_printer_cmd}
 {install_printer_cmd}

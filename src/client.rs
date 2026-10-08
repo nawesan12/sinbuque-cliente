@@ -1765,6 +1765,10 @@ pub struct LoginConfigHandler {
     pub peer_info: Option<PeerInfo>,
     password_source: PasswordSource, // where the sent password comes from
     shared_password: Option<String>, // Store the shared password
+    /// SinBuque: si la contraseña de fábrica acaba de fallar, el próximo intento usa el
+    /// orden de siempre (la recordada, la de la sesión anterior…). Va alternando, así una
+    /// compu con versión vieja y clave local tampoco deja afuera a un visor nuevo.
+    pub sinbuque_skip_default: bool,
     pub enable_trusted_devices: bool,
     pub record_state: bool,
     pub record_permission: bool,
@@ -3398,7 +3402,11 @@ pub fn handle_login_error(
         interface.msgbox("input-password", "Password Required", "", "");
         true
     } else if err == LOGIN_MSG_PASSWORD_WRONG {
-        lc.write().unwrap().password = Default::default();
+        {
+            let mut lc = lc.write().unwrap();
+            lc.password = Default::default();
+            lc.sinbuque_skip_default = !lc.sinbuque_skip_default;
+        }
         interface.msgbox("re-input-password", err, "Do you want to enter again?", "");
         true
     } else if err == LOGIN_MSG_2FA_WRONG || err == REQUIRE_2FA {
@@ -3508,7 +3516,8 @@ pub async fn handle_hash(
     // viejas, y con una vieja la reconexión terminaba en un diálogo esperando a una persona.
     let default_connect_password =
         crate::ui_interface::get_builtin_option(keys::OPTION_DEFAULT_CONNECT_PASSWORD);
-    let using_default_connect_password = !default_connect_password.is_empty();
+    let using_default_connect_password =
+        !default_connect_password.is_empty() && !lc.read().unwrap().sinbuque_skip_default;
     let mut password = if !using_default_connect_password {
         // last password
         lc.read().unwrap().password.clone()

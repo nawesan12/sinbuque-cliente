@@ -342,7 +342,15 @@ impl<T: InvokeUiSession> Remote<T> {
                             // eso es una pantalla congelada que no responde. Una pantalla
                             // quieta tampoco manda cuadros, así que primero se pide uno: si
                             // llega, estaba todo bien; si no llega, se reconecta.
-                            if frames > 0 || !self.first_frame || self.video_threads.is_empty() {
+                            // Sólo contra Windows: ahí pedir un cuadro siempre trae uno (DXGI
+                            // arma un capturador nuevo). Android y Wayland mandan cuadros sólo
+                            // cuando la pantalla cambia, y con la pantalla quieta esto
+                            // reconectaría cada treinta segundos.
+                            if frames > 0
+                                || !self.first_frame
+                                || self.video_threads.is_empty()
+                                || self.handler.peer_platform() != "Windows"
+                            {
                                 last_video_frame = Instant::now();
                                 video_refresh_asked = None;
                             } else if let Some(asked) = video_refresh_asked {
