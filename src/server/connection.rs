@@ -4024,7 +4024,9 @@ impl Connection {
             .copied()
             .unwrap_or((0, 0, 0));
 
-        if failure_prefix.2 > thresh {
+        // SinBuque: igual que el tope de 30 fallos de abajo, este bloqueo sólo se limpia
+        // reiniciando el programa en la compu controlada. Afuera.
+        if false && failure_prefix.2 > thresh {
             self.send_login_error(format!(
                 "Too many wrong attempts for IPv6 prefix /{}",
                 prefix_num
