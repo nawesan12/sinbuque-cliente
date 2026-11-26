@@ -1,7 +1,7 @@
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
     time::{Duration, Instant},
@@ -54,6 +54,58 @@ static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
 pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "android")]
 static NOTIFIED_NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
+// Unix seconds of the last answer from hbbs; 0 until the watchdog starts.
+static LAST_SERVER_ACK: AtomicU64 = AtomicU64::new(0);
+// Without an answer for this long and nobody connected, the --server process
+// exits and the Windows service launches a fresh one. A user saw the
+// controlled side stop registering after an ISP outage and stay "offline"
+// until someone rebooted the PC by hand.
+#[cfg(windows)]
+const SERVER_ACK_TIMEOUT_SECS: u64 = 90;
+// A session that is still open keeps the process alive longer, but not forever:
+// a relay can stay open with nothing behind it.
+#[cfg(windows)]
+const SERVER_ACK_TIMEOUT_BUSY_SECS: u64 = 600;
+
+fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+#[cfg(windows)]
+fn start_server_ack_watchdog() {
+    LAST_SERVER_ACK.store(unix_secs(), Ordering::SeqCst);
+    // A plain thread on purpose: it has to keep running if the runtime is stuck.
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(15));
+        let now = unix_secs();
+        if config::option2bool("stop-service", &Config::get_option("stop-service"))
+            || NEEDS_DEPLOY.load(Ordering::SeqCst)
+        {
+            LAST_SERVER_ACK.store(now, Ordering::SeqCst);
+            continue;
+        }
+        let silent = now.saturating_sub(LAST_SERVER_ACK.load(Ordering::SeqCst));
+        // try_lock: if this lock is the one that is stuck, nobody is being served.
+        let busy = crate::server::AUTHED_CONNS
+            .try_lock()
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let limit = if busy {
+            SERVER_ACK_TIMEOUT_BUSY_SECS
+        } else {
+            SERVER_ACK_TIMEOUT_SECS
+        };
+        if silent >= limit {
+            log::error!(
+                "no answer from the rendezvous server for {silent}s (busy: {busy}), exiting so the service restarts the server"
+            );
+            std::process::exit(1);
+        }
+    });
+}
 // register_pk retry interval (ms) when device is awaiting deployment
 const DEPLOY_RETRY_INTERVAL: i64 = 30_000;
 lazy_static::lazy_static! {
@@ -149,6 +201,10 @@ impl RendezvousMediator {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
+        #[cfg(windows)]
+        if crate::platform::is_installed() && crate::is_server() {
+            start_server_ack_watchdog();
+        }
         *LAST_NOT_DEPLOYED_REGISTER.lock().await = None;
         loop {
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));
@@ -342,6 +398,7 @@ impl RendezvousMediator {
         match msg {
             Some(rendezvous_message::Union::RegisterPeerResponse(rpr)) => {
                 update_latency();
+                LAST_SERVER_ACK.store(unix_secs(), Ordering::SeqCst);
                 if rpr.request_pk {
                     log::info!("request_pk received from {}", self.host);
                     self.register_pk(sink).await?;
@@ -349,6 +406,7 @@ impl RendezvousMediator {
             }
             Some(rendezvous_message::Union::RegisterPkResponse(rpr)) => {
                 update_latency();
+                LAST_SERVER_ACK.store(unix_secs(), Ordering::SeqCst);
                 match rpr.result.enum_value() {
                     Ok(register_pk_response::Result::OK) => {
                         Config::set_key_confirmed(true);
