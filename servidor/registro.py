@@ -8,7 +8,6 @@ carpetas. Caddy lo publica en https://sinbuque.online/registro/subir.
 El cliente manda un pedazo de un archivo y dónde empieza:
 
     POST /registro/subir
-    Authorization: Bearer <token>
     X-SinBuque-Id: 7432715          (sólo dígitos)
     X-SinBuque-Proceso: server       (minúsculas, puede ir vacío)
     X-SinBuque-Archivo: 2026-11-26_9f3c0a1b2c3d4e5f.log
@@ -23,7 +22,6 @@ arma el cliente con la fecha y un hash de la primera línea del archivo
 (2026-11-26_9f3c….log), que no cambia cuando el log rota. Se borra a los 90 días
 (cron de limpieza).
 """
-import hmac
 import os
 import re
 import shutil
@@ -33,7 +31,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 RAIZ = os.environ.get("REGISTRO_RAIZ", "/var/log/sinbuque/clientes")
-TOKEN = open(os.environ.get("REGISTRO_TOKEN", "/opt/sinbuque/registro.token")).read().strip()
+# Sólo se aceptan logs de IDs que hbbs conoce. El cron de sinbuque-logs vuelca la
+# lista de la base de hbbs cada minuto. Un token metido en el instalador no
+# protegería más: lo saca cualquiera que se lo baje.
+IDS = os.environ.get("REGISTRO_IDS", "/opt/sinbuque/ids-conocidos.txt")
 PUERTO = int(os.environ.get("REGISTRO_PUERTO", "21190"))
 MAX_PEDAZO = 1 << 20          # 1 MiB por pedido
 MAX_ARCHIVO = 200 << 20       # 200 MiB por archivo guardado
@@ -42,6 +43,21 @@ MIN_LIBRE = int(os.environ.get("REGISTRO_MIN_LIBRE", 2 << 30))          # con me
 ID = re.compile(r"^[0-9]{6,12}$")
 PROCESO = re.compile(r"^[a-z_-]{0,16}$")
 ARCHIVO = re.compile(r"^[A-Za-z0-9_.-]{1,96}\.log$")
+
+_ids = (None, set())
+
+
+def conocido(ident):
+    global _ids
+    try:
+        mtime = os.path.getmtime(IDS)
+    except OSError:
+        return False
+    if _ids[0] != mtime:
+        with open(IDS, encoding="utf-8") as f:
+            _ids = (mtime, {l.strip() for l in f if l.strip()})
+    return ident in _ids[1]
+
 
 # Dos pedidos sobre el mismo archivo no pueden intercalarse.
 candados = {}
@@ -68,9 +84,6 @@ class Receptor(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/registro/subir":
             return self.responder(404)
-        clave = self.headers.get("Authorization", "")
-        if not hmac.compare_digest(clave.encode(), f"Bearer {TOKEN}".encode()):
-            return self.responder(401)
         ident = self.headers.get("X-SinBuque-Id", "")
         proceso = self.headers.get("X-SinBuque-Proceso", "")
         archivo = self.headers.get("X-SinBuque-Archivo", "")
@@ -81,6 +94,8 @@ class Receptor(BaseHTTPRequestHandler):
             return self.responder(400, "desde/largo")
         if not (ID.match(ident) and PROCESO.match(proceso) and ARCHIVO.match(archivo)):
             return self.responder(400, "nombres")
+        if not conocido(ident):
+            return self.responder(403, "id")
         if desde < 0 or largo < 0 or largo > MAX_PEDAZO:
             return self.responder(413 if largo > MAX_PEDAZO else 400, "largo")
         cuerpo = self.rfile.read(largo)

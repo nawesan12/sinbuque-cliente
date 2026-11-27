@@ -4,3 +4,5 @@
 # los 90 días; los del servidor y la presencia pesan poco y se guardan un año.
 5 0 * * * root for c in hbbs hbbr; do docker logs -t --since "$(date -u -d yesterday +\%F)T00:00:00Z" --until "$(date -u +\%F)T00:00:00Z" $c > /var/log/sinbuque/servidor/$c-$(date -u -d yesterday +\%F).log 2>&1; done
 20 0 * * * root find /var/log/sinbuque/clientes -type f -mtime +90 -delete; find /var/log/sinbuque/clientes -mindepth 1 -type d -empty -delete; find /var/log/sinbuque/servidor -type f -mtime +365 -delete
+# Los IDs que hbbs conoce: el receptor de logs sólo acepta esos.
+* * * * * root python3 -I -c "import sqlite3; c=sqlite3.connect('file:/opt/sinbuque/data/db_v2.sqlite3?mode=ro', uri=True); print('\\n'.join(r[0] for r in c.execute('select id from peer')))" > /opt/sinbuque/ids-conocidos.txt.tmp && chmod 644 /opt/sinbuque/ids-conocidos.txt.tmp && mv /opt/sinbuque/ids-conocidos.txt.tmp /opt/sinbuque/ids-conocidos.txt

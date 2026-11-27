@@ -96,18 +96,7 @@ jobs:
               vcpkg-triplet: x64-windows-static,
               build-args: "--vram",
             }
-    env:
-      # Lo lee registro.rs al compilar: con él, cada compu sube sus logs al servidor.
-      SINBUQUE_REGISTRO_TOKEN: ${{ secrets.SINBUQUE_REGISTRO_TOKEN }}
     steps:
-      - name: Sin el token del registro no se compila
-        shell: bash
-        run: |
-          if [ -z "$SINBUQUE_REGISTRO_TOKEN" ]; then
-            echo "::error::Falta el secreto SINBUQUE_REGISTRO_TOKEN: sin él las compus no suben sus logs."
-            exit 1
-          fi
-
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
         with:

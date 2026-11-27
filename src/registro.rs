@@ -11,7 +11,8 @@
 //! días sin internet, al volver sube lo que faltaba de cada archivo.
 //!
 //! El servidor contesta cuántos bytes tiene de cada archivo, y de ahí se sigue: un
-//! reintento nunca duplica y un hueco se rellena solo.
+//! reintento nunca duplica y un hueco se rellena solo. El servidor sólo acepta IDs
+//! que hbbs ya conoce.
 use hbb_common::{config::Config, log};
 use std::{
     collections::{HashMap, HashSet},
@@ -23,7 +24,6 @@ use std::{
 };
 
 const URL: &str = "https://sinbuque.online/registro/subir";
-const TOKEN: Option<&str> = option_env!("SINBUQUE_REGISTRO_TOKEN");
 const CADA: Duration = Duration::from_secs(20);
 const PEDAZO: u64 = 512 * 1024;
 // La primera vez que corre no sube un mes de historia: sólo lo de la última semana.
@@ -32,9 +32,6 @@ const ESTADO: &str = "subido.json";
 const CANDADO: &str = "subiendo.lock";
 
 pub fn start(proceso: &str) {
-    let Some(token) = TOKEN.filter(|t| !t.is_empty()) else {
-        return;
-    };
     log::info!(
         "SinBuque build {}",
         option_env!("GITHUB_SHA").unwrap_or("local")
@@ -57,7 +54,7 @@ pub fn start(proceso: &str) {
             if id.is_empty() {
                 continue;
             }
-            if let Err(err) = ronda(&dir, &proceso, &id, token, &mut estado) {
+            if let Err(err) = ronda(&dir, &proceso, &id, &mut estado) {
                 // Sin internet esto falla cada 20 s: avisar una vez por hora alcanza.
                 if ultimo_aviso.map_or(true, |t| t.elapsed() > Duration::from_secs(3600)) {
                     log::warn!("log upload: {err}");
@@ -132,7 +129,6 @@ fn ronda(
     dir: &Path,
     proceso: &str,
     id: &str,
-    token: &str,
     estado: &mut HashMap<String, u64>,
 ) -> Result<(), String> {
     let mut archivos: Vec<(PathBuf, u64, SystemTime)> = fs::read_dir(dir)
@@ -167,7 +163,6 @@ fn ronda(
             }
             let resp = cliente
                 .post(URL)
-                .bearer_auth(token)
                 .header("X-SinBuque-Id", id)
                 .header("X-SinBuque-Proceso", proceso)
                 .header("X-SinBuque-Archivo", &clave)
