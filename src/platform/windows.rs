@@ -637,7 +637,6 @@ extern "system" {
     fn BlockInput(v: BOOL) -> BOOL;
 }
 
-#[tokio::main(flavor = "current_thread")]
 // The --server process touches this file every few seconds from a plain thread. If it
 // stops (the whole process is stuck, or Windows holds it after a crash to show the
 // error dialog), the service kills it and launches a new one: a "running" process
@@ -672,6 +671,7 @@ pub fn disable_crash_dialog() {
     }
 }
 
+#[tokio::main(flavor = "current_thread")]
 async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         log::info!("Got service control event: {:?}", control_event);
