@@ -1,0 +1,22 @@
+# Receptor de logs de las compus: ver registro.py. Caddy lo publica en
+# https://sinbuque.online/registro/subir.
+[Unit]
+Description=SinBuque · receptor de logs de las compus
+After=network-online.target
+
+[Service]
+User=sinbuque-registro
+Group=sinbuque-registro
+ExecStart=/usr/bin/python3 -I /opt/sinbuque/registro.py
+Restart=always
+RestartSec=5
+ProtectSystem=strict
+ReadWritePaths=/var/log/sinbuque/clientes
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

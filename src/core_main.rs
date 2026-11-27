@@ -159,6 +159,8 @@ pub fn core_main() -> Option<Vec<String>> {
         }
     }
     hbb_common::init_log(false, &log_name);
+    #[cfg(windows)]
+    crate::registro::start(&log_name);
 
     // linux uni (url) go here.
     #[cfg(all(target_os = "linux", feature = "flutter"))]

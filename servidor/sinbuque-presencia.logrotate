@@ -1,0 +1,9 @@
+/var/log/sinbuque/presencia.log {
+	weekly
+	rotate 52
+	compress
+	delaycompress
+	missingok
+	notifempty
+	copytruncate
+}

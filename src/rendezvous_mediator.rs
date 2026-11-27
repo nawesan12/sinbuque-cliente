@@ -54,55 +54,87 @@ static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
 pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "android")]
 static NOTIFIED_NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
-// Unix seconds of the last answer from hbbs; 0 until the watchdog starts.
+// Seconds since START of the last answer from hbbs. Monotonic on purpose: a clock
+// change must not look like silence.
 static LAST_SERVER_ACK: AtomicU64 = AtomicU64::new(0);
+lazy_static::lazy_static! {
+    static ref START: Instant = Instant::now();
+}
+// Without an answer for this long over 21116, switch to wss on 443 (until the
+// process restarts). A site that blocks 21116 but not 443 keeps working.
+const WS_FALLBACK_AFTER_SECS: u64 = 45;
 // Without an answer for this long and nobody connected, the --server process
-// exits and the Windows service launches a fresh one. A user saw the
-// controlled side stop registering after an ISP outage and stay "offline"
-// until someone rebooted the PC by hand.
+// exits and the Windows service launches a fresh one. On 2026-11-25 a controlled
+// PC stopped registering and stayed "offline" until someone rebooted it by hand.
 #[cfg(windows)]
-const SERVER_ACK_TIMEOUT_SECS: u64 = 90;
+const SERVER_ACK_TIMEOUT_SECS: u64 = 120;
 // A session that is still open keeps the process alive longer, but not forever:
 // a relay can stay open with nothing behind it.
 #[cfg(windows)]
 const SERVER_ACK_TIMEOUT_BUSY_SECS: u64 = 600;
 
-fn unix_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+fn secs_since_start() -> u64 {
+    START.elapsed().as_secs()
 }
 
-#[cfg(windows)]
+fn mark_server_ack() {
+    LAST_SERVER_ACK.store(secs_since_start(), Ordering::SeqCst);
+}
+
+fn server_silent_secs() -> u64 {
+    secs_since_start().saturating_sub(LAST_SERVER_ACK.load(Ordering::SeqCst))
+}
+
+fn is_paused() -> bool {
+    config::option2bool("stop-service", &Config::get_option("stop-service"))
+        || NEEDS_DEPLOY.load(Ordering::SeqCst)
+}
+
+// Runs on its own thread, not on Tokio: it has to keep working if the runtime is stuck.
 fn start_server_ack_watchdog() {
-    LAST_SERVER_ACK.store(unix_secs(), Ordering::SeqCst);
-    // A plain thread on purpose: it has to keep running if the runtime is stuck.
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(start_server_ack_watchdog_);
+}
+
+fn start_server_ack_watchdog_() {
+    mark_server_ack();
+    #[cfg(windows)]
+    crate::platform::disable_crash_dialog();
     std::thread::spawn(|| loop {
-        std::thread::sleep(Duration::from_secs(15));
-        let now = unix_secs();
-        if config::option2bool("stop-service", &Config::get_option("stop-service"))
-            || NEEDS_DEPLOY.load(Ordering::SeqCst)
-        {
-            LAST_SERVER_ACK.store(now, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_secs(5));
+        #[cfg(windows)]
+        crate::platform::touch_server_alive_file();
+        if is_paused() {
+            mark_server_ack();
             continue;
         }
-        let silent = now.saturating_sub(LAST_SERVER_ACK.load(Ordering::SeqCst));
-        // try_lock: if this lock is the one that is stuck, nobody is being served.
-        let busy = crate::server::AUTHED_CONNS
-            .try_lock()
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        let limit = if busy {
-            SERVER_ACK_TIMEOUT_BUSY_SECS
-        } else {
-            SERVER_ACK_TIMEOUT_SECS
-        };
-        if silent >= limit {
-            log::error!(
-                "no answer from the rendezvous server for {silent}s (busy: {busy}), exiting so the service restarts the server"
+        let silent = server_silent_secs();
+        if silent >= WS_FALLBACK_AFTER_SECS && !config::is_ws_fallback() {
+            log::warn!(
+                "no answer from the rendezvous server for {silent}s, switching to websocket on 443"
             );
-            std::process::exit(1);
+            config::set_ws_fallback(true);
+            RendezvousMediator::restart();
+        }
+        #[cfg(windows)]
+        if crate::platform::is_installed() && crate::is_server() {
+            // try_lock: if this lock is the one that is stuck, nobody is being served.
+            let busy = crate::server::AUTHED_CONNS
+                .try_lock()
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            let limit = if busy {
+                SERVER_ACK_TIMEOUT_BUSY_SECS
+            } else {
+                SERVER_ACK_TIMEOUT_SECS
+            };
+            if silent >= limit {
+                log::error!(
+                    "no answer from the rendezvous server for {silent}s (busy: {busy}, websocket: {}), exiting so the service restarts the server",
+                    config::is_ws_fallback()
+                );
+                std::process::exit(1);
+            }
         }
     });
 }
@@ -201,10 +233,7 @@ impl RendezvousMediator {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
-        #[cfg(windows)]
-        if crate::platform::is_installed() && crate::is_server() {
-            start_server_ack_watchdog();
-        }
+        start_server_ack_watchdog();
         *LAST_NOT_DEPLOYED_REGISTER.lock().await = None;
         loop {
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));
@@ -398,7 +427,7 @@ impl RendezvousMediator {
         match msg {
             Some(rendezvous_message::Union::RegisterPeerResponse(rpr)) => {
                 update_latency();
-                LAST_SERVER_ACK.store(unix_secs(), Ordering::SeqCst);
+                mark_server_ack();
                 if rpr.request_pk {
                     log::info!("request_pk received from {}", self.host);
                     self.register_pk(sink).await?;
@@ -406,7 +435,7 @@ impl RendezvousMediator {
             }
             Some(rendezvous_message::Union::RegisterPkResponse(rpr)) => {
                 update_latency();
-                LAST_SERVER_ACK.store(unix_secs(), Ordering::SeqCst);
+                mark_server_ack();
                 match rpr.result.enum_value() {
                     Ok(register_pk_response::Result::OK) => {
                         Config::set_key_confirmed(true);
@@ -507,6 +536,8 @@ impl RendezvousMediator {
                 res = conn.next() => {
                     last_recv_msg = Instant::now();
                     let bytes = res.ok_or_else(|| anyhow::anyhow!("Rendezvous connection is reset by the peer"))??;
+                    // Over TCP/websocket the server also sends empty heartbeats: any frame means it answers.
+                    mark_server_ack();
                     if bytes.is_empty() {
                         // After fixing frequent register_pk, for websocket, nginx need to set proxy_read_timeout to more than 60 seconds, eg: 120s
                         // https://serverfault.com/questions/1060525/why-is-my-websocket-connection-gets-closed-in-60-seconds

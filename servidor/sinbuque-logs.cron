@@ -1,0 +1,6 @@
+# SinBuque: logs del servidor que no se pierden.
+# Cada día a las 00:05 UTC, el día anterior de hbbs y hbbr queda en su propio archivo
+# (docker los pierde si el contenedor se recrea). Los logs de las compus se borran a
+# los 90 días; los del servidor y la presencia pesan poco y se guardan un año.
+5 0 * * * root for c in hbbs hbbr; do docker logs -t --since "$(date -u -d yesterday +\%F)T00:00:00Z" --until "$(date -u +\%F)T00:00:00Z" $c > /var/log/sinbuque/servidor/$c-$(date -u -d yesterday +\%F).log 2>&1; done
+20 0 * * * root find /var/log/sinbuque/clientes -type f -mtime +90 -delete; find /var/log/sinbuque/clientes -mindepth 1 -type d -empty -delete; find /var/log/sinbuque/servidor -type f -mtime +365 -delete

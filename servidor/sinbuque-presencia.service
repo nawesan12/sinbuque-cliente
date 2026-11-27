@@ -1,0 +1,17 @@
+# Registro de presencia de SinBuque: ver presencia.py.
+[Unit]
+Description=SinBuque · presencia de las compus
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 -I /opt/sinbuque/presencia.py
+Restart=always
+RestartSec=5
+# tcpdump necesita root; todo lo demás queda de sólo lectura.
+ProtectSystem=strict
+ReadWritePaths=/var/log/sinbuque
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

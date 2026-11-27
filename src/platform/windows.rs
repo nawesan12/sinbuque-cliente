@@ -39,7 +39,7 @@ use winapi::{
     ctypes::c_void,
     shared::{minwindef::*, ntdef::NULL, windef::*, winerror::*},
     um::{
-        errhandlingapi::GetLastError,
+        errhandlingapi::{GetLastError, SetErrorMode},
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
         libloaderapi::{
             GetProcAddress, LoadLibraryA, LoadLibraryExA, LOAD_LIBRARY_SEARCH_SYSTEM32,
@@ -47,7 +47,8 @@ use winapi::{
         minwinbase::STILL_ACTIVE,
         processthreadsapi::{
             GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, OpenProcess,
-            OpenProcessToken, ProcessIdToSessionId, PROCESS_INFORMATION, STARTUPINFOW,
+            OpenProcessToken, ProcessIdToSessionId, TerminateProcess, PROCESS_INFORMATION,
+            STARTUPINFOW,
         },
         securitybaseapi::{
             AllocateAndInitializeSid, DuplicateToken, EqualSid, FreeSid, GetTokenInformation,
@@ -637,6 +638,40 @@ extern "system" {
 }
 
 #[tokio::main(flavor = "current_thread")]
+// The --server process touches this file every few seconds from a plain thread. If it
+// stops (the whole process is stuck, or Windows holds it after a crash to show the
+// error dialog), the service kills it and launches a new one: a "running" process
+// that never comes back is what left a PC offline until someone rebooted it.
+const SERVER_ALIVE_FILE: &str = "server-alive";
+const SERVER_HUNG: Duration = Duration::from_secs(180);
+
+fn server_alive_file() -> PathBuf {
+    Config::log_path().join(SERVER_ALIVE_FILE)
+}
+
+pub fn touch_server_alive_file() {
+    if crate::is_server() {
+        fs::write(server_alive_file(), b"").ok();
+    }
+}
+
+fn server_alive_file_is_fresh() -> bool {
+    fs::metadata(server_alive_file())
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .map(|age| age < Duration::from_secs(30))
+        .unwrap_or(false)
+}
+
+// Without this, a crash leaves the process waiting on the error dialog and the
+// service sees it as still running.
+pub fn disable_crash_dialog() {
+    unsafe {
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    }
+}
+
 async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         log::info!("Got service control event: {:?}", control_event);
@@ -677,6 +712,9 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     let mut h_process = launch_server(session_id, true).await.unwrap_or(NULL);
     let mut incoming = ipc::new_listener(crate::POSTFIX_SERVICE).await?;
     let mut stored_usid = None;
+    let mut watched = h_process;
+    let mut last_alive = Instant::now();
+    let mut seen_alive = false;
     loop {
         let sids: Vec<_> = get_available_sessions(false)
             .iter()
@@ -753,6 +791,25 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
                             send_close_async("").await.ok();
                             close_sent = true;
                         }
+                    }
+                    if h_process != watched {
+                        watched = h_process;
+                        last_alive = Instant::now();
+                        seen_alive = false;
+                    }
+                    if server_alive_file_is_fresh() {
+                        last_alive = Instant::now();
+                        seen_alive = true;
+                    }
+                    // Only a process that already reported once can be judged as hung.
+                    if !h_process.is_null() && seen_alive && last_alive.elapsed() > SERVER_HUNG {
+                        log::error!(
+                            "server process stopped reporting for {}s, terminating it",
+                            last_alive.elapsed().as_secs()
+                        );
+                        TerminateProcess(h_process, 1);
+                        last_alive = Instant::now();
+                        seen_alive = false;
                     }
                     let mut exit_code: DWORD = 0;
                     if h_process.is_null()

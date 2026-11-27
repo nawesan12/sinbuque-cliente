@@ -389,7 +389,8 @@ pub fn check_ws(endpoint: &str) -> String {
     };
     let protocol = if is_domain {
         let api_server = Config::get_option("api-server");
-        if api_server.starts_with("https") {
+        // The fallback only exists behind Caddy on 443, which is TLS.
+        if api_server.starts_with("https") || crate::config::is_ws_fallback() {
             "wss"
         } else {
             "ws"

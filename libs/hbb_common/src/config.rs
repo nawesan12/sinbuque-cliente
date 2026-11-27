@@ -2942,9 +2942,22 @@ pub fn option2bool(option: &str, value: &str) -> bool {
     }
 }
 
+// SinBuque: set at runtime by the rendezvous mediator when the server stops answering
+// on 21116, so the client goes on through wss on 443. The office in Uruguay lost
+// 21116 while 443 kept working.
+static WS_FALLBACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_ws_fallback(on: bool) {
+    WS_FALLBACK.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn is_ws_fallback() -> bool {
+    WS_FALLBACK.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 pub fn use_ws() -> bool {
     let option = keys::OPTION_ALLOW_WEBSOCKET;
-    option2bool(option, &Config::get_option(option))
+    option2bool(option, &Config::get_option(option)) || is_ws_fallback()
 }
 
 pub fn allow_insecure_tls_fallback() -> bool {
